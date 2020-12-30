@@ -52,10 +52,10 @@ async function scanProto(dir, cb) {
 }
 
 copyProto();
-// scanProto(tempDir, generatedOpenAPI);
-generatedOpenAPI(
+scanProto(tempDir, generatedOpenAPI);
+/* generatedOpenAPI(
   path.resolve(tempDir, "h5/h5_get_apply_open_org_record.proto")
-);
+); */
 
 async function generatedOpenAPI(proto) {
   const name = path.basename(proto);
