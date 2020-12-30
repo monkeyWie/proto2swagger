@@ -1,0 +1,23 @@
+{
+  "name": "proto2openapi-test",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "node index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@accility/protoc-swagger-plugin": "^0.11.0",
+    "@accility/protoc-tools": "^0.11.0",
+    "axios": "^0.21.0",
+    "compare-versions": "^3.6.0",
+    "fs-extra": "^9.0.1",
+    "proto-parser": "0.0.5",
+    "protobufjs": "^6.10.2",
+    "rimraf": "^3.0.2",
+    "swagger-client": "^3.12.1",
+    "underscore": "^1.12.0"
+  }
+}
