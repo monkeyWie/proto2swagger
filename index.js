@@ -53,9 +53,7 @@ async function scanProto(dir, cb) {
 
 copyProto();
 scanProto(tempDir, generatedOpenAPI);
-/* generatedOpenAPI(
-  path.resolve(tempDir, "h5/h5_get_apply_open_org_record.proto")
-); */
+// generatedOpenAPI(path.resolve(tempDir, "ask/ask.proto"));
 
 async function generatedOpenAPI(proto) {
   const name = path.basename(proto);
@@ -63,10 +61,7 @@ async function generatedOpenAPI(proto) {
   if (!result) {
     return;
   }
-  const { ast, ast2, fullPkg, pkg, gen, versions } = result;
-  if (fullPkg == "proto.grpc" || fullPkg == "proto.base") {
-    return;
-  }
+  const { ast, ast2, pkg, gen, paths } = result;
 
   // 写入一份修改后的.proto文件到临时目录
   fs.writeFileSync(proto, gen);
@@ -95,20 +90,14 @@ async function generatedOpenAPI(proto) {
   );
 
   const swaggerJson = JSON.parse(fs.readFileSync(swaggerPath).toString());
+  // 添加接口简介和版本
+  const versions = addApiInfo(swaggerJson, paths);
   // 添加注释
   addComment(swaggerJson, ast, ast2, pkg);
-  // 添加版本tag
-  addVersion(swaggerJson, versions);
   fs.writeFileSync(swaggerPath, JSON.stringify(swaggerJson));
 
   // 模拟yAPI导入
   const json = JSON.parse(fs.readFileSync(swaggerPath).toString());
-  // 添加接口简介
-  for (const key of Object.keys(json.paths)) {
-    if (key.startsWith("/")) {
-      json.paths[key].post.summary = path.basename(name, ".proto");
-    }
-  }
   // 标签维护
   updateTagList(versions);
   // 分类列表拉取
@@ -137,7 +126,7 @@ function genTemp(proto) {
   let ast = null;
   let ast2 = null;
   try {
-    ast = parser.parse(text);
+    ast = parser.parse(text, { weakResolve: true });
     ast2 = protobuf.parse(text, {
       alternateCommentMode: true,
       preferTrailingComment: true,
@@ -147,47 +136,50 @@ function genTemp(proto) {
     return;
   }
 
+  const fullPkg = ast.package;
+  if (fullPkg == "proto.grpc" || fullPkg == "proto.base") {
+    return;
+  }
   const name = path.basename(proto, ".proto");
-  let fullPkg = ast.package;
-  let pkg = "";
-  let reqNode = findMessage(ast.root, "Req|Request");
-  let req = reqNode ? reqNode.name : null;
-  let respNode = findMessage(ast.root, "Resp|Res|Rsp|Respond|Response");
-  let resp = respNode ? respNode.name : null;
-  let uri = text.match(/(\/[a-zA-Z_\-]+)(\/[a-zA-Z0-9_\-]+)+/);
-  let versions = text.match(/@version\s+([^\s]+)\n/);
-
-  if (!req && !resp) {
-    return null;
+  const paths = getMessages(ast, ast2, name, text);
+  if (paths.length == 0) {
+    return;
   }
 
-  if (!req) {
-    req = "RequestFake";
-    console.warn(`没有匹配到请求：${proto}`);
-  }
+  let pkg = fullPkg.lastIndexOf(".");
+  pkg = pkg != -1 ? fullPkg.substring(pkg + 1) : fullPkg;
 
-  if (!resp) {
-    resp = "ResponseFake";
-    console.warn(`没有匹配到响应：${proto}`);
-  }
+  const apisText = paths
+    .map((api) => {
+      const apiName = paths.length == 1 ? name : api.req.biz;
+      return ` rpc ${apiName}(${api.req.name})
+    returns(${api.resp.name}) {
+    option(google.api.http) = {
+      post : "${api.req.uri}"
+      body : "*"
+  };
+}
 
-  if (uri) {
-    uri = uri[0];
-  } else {
-    uri = "/" + name;
-    console.warn(`没有匹配到uri：${proto}`);
-  }
-
-  if (fullPkg) {
-    const index = fullPkg.lastIndexOf(".");
-    pkg = index > 0 ? fullPkg.substring(index + 1) : fullPkg;
-  } else {
-    console.warn(`没有匹配到package：${proto}`);
-  }
-
-  if (versions) {
-    versions = versions[1].split(",");
-  }
+`;
+    })
+    .join("");
+  const fakeText = paths
+    .map((api) => {
+      if (!api.req.syntaxType) {
+        return `
+      message ${api.req.name} {}
+      
+      `;
+      } else if (!api.resp.syntaxType) {
+        return `
+      message ${api.resp.name} {}
+      
+      `;
+      } else {
+        return "";
+      }
+    })
+    .join("");
 
   text = text.replace(
     /(syntax\s*=\s*"proto3";)/,
@@ -196,25 +188,19 @@ function genTemp(proto) {
   text = text.replace(
     /(package\s[a-z|0-9\.]+;)/,
     `$1\r\nservice ${pkg} {
-    rpc ${name}(${req})
-        returns(${resp}) {
-        option(google.api.http) = {
-          post : "${uri}"
-          body : "*"
-      };
-    }
-}\r\n
-${req === "RequestFake" ? "message RequestFake {}\r\n" : ""}
-${resp === "ResponseFake" ? "message ResponseFake {}\r\n" : ""}`
+    ${apisText}
+}
+
+`
   );
+  text += fakeText;
 
   return {
     ast,
     ast2,
-    fullPkg,
     pkg,
     gen: text,
-    versions,
+    paths,
   };
 }
 
@@ -237,6 +223,123 @@ function findMessage(node, exp) {
       return result;
     }
   }
+}
+
+// 获取出顶级的message配对列表
+function getMessages(ast, ast2, name, text) {
+  const ret = [];
+
+  const reqs = [];
+  const resps = [];
+
+  const pks = ast.package.split(".");
+  let node = ast.root.nested;
+  for (const pk of pks) {
+    node = node[pk].nested;
+  }
+
+  for (const key of Object.keys(node)) {
+    const t = node[key];
+    if (t.syntaxType === "MessageDefinition") {
+      let mr = t.name.match(new RegExp(/^(.*)Req|Request(.*)$/, "i"));
+      if (mr) {
+        t.biz = mr[1] + mr[2];
+        reqs.push(t);
+      } else {
+        mr = t.name.match(
+          new RegExp(/^(.*)Resp|Res|Rsp|Respond|Response(.*)$/, "i")
+        );
+        if (mr) {
+          t.biz = mr[1] + mr[2];
+          resps.push(t);
+        }
+      }
+    }
+  }
+
+  if (reqs.length == 0 && resps.length == 0) {
+    return ret;
+  }
+
+  if (reqs.length != resps.length) {
+    const diff = reqs.length - resps.length;
+    const absDiff = Math.abs(diff);
+    if (diff < 0) {
+      // 缺少请求补上
+      for (let i = 0; i < absDiff; i++) {
+        reqs.push({ name: "RequestFake" + i });
+      }
+    } else {
+      // 缺少响应补上
+      for (let i = 0; i < absDiff; i++) {
+        resps.push({ name: "ResponseFake" + i });
+      }
+    }
+    for (let i = 0; i < reqs; i++) {
+      ret.push({
+        req: reqs[i],
+        resp: resps[i],
+      });
+    }
+  } else if (reqs.length > 1) {
+    // 存在多个接口的情况，匹配对应的请求和响应
+    for (let i = 0; i < reqs.length; i++) {
+      const req = reqs[i];
+      const t = resps.find((r) => r.biz == req.biz);
+      if (t) {
+        ret.push({
+          req,
+          resp: t,
+        });
+      } else {
+        ret.push({
+          req,
+          resp: resps[i],
+        });
+      }
+    }
+  } else {
+    ret.push({
+      req: reqs[0],
+      resp: resps[0],
+    });
+  }
+
+  // 全局
+  const guri = text.match(/(\/[a-zA-Z_\-]+)(\/[a-zA-Z0-9_\-]+)+/);
+  const gbrief = text.match(/@brief\s+([^\s]+)\n/);
+  const gversions = text.match(/@version\s+([^\s]+)\n/);
+  const isSingle = reqs.length == 1 || resps.length == 1;
+
+  // 获取接口基本信息
+  for (const req of reqs) {
+    if (req.syntaxType) {
+      const type = ast2.root.lookupTypeOrEnum(req.name);
+      let uri, brief, versions;
+      if (isSingle) {
+        uri = guri;
+        brief = gbrief;
+        versions = gversions;
+      } else if (type && type.comment) {
+        uri = type.comment.match(/(\/[a-zA-Z_\-]+)(\/[a-zA-Z0-9_\-]+)+/);
+        brief = type.comment.match(/@brief\s+([^\s]+)\n/);
+        versions = type.comment.match(/@version\s+([^\s]+)\n/);
+      }
+      if (uri) {
+        req.uri = uri[0];
+      } else {
+        req.uri = "/" + name;
+      }
+      if (brief) {
+        req.brief = brief[1];
+      }
+      if (versions) {
+        req.versions = versions[1].split(",");
+      }
+    }
+  }
+
+  return ret;
 }
 
 // 遍历所有message
@@ -283,58 +386,24 @@ function addComment(swaggerJson, ast, ast2, pkg) {
       }
     }
   });
-
-  /*
-  const definitions = swaggerJson.definitions;
-  const arr = [];
-  function flatMessage(node) {
-    if (!node) {
-      return;
-    }
-    if (node.syntaxType === "MessageDefinition") {
-      arr.push(node);
-    }
-    if (!node.nested) {
-      return;
-    }
-    for (const key of Object.keys(node.nested)) {
-      const result = flatMessage(node.nested[key]);
-      if (result) {
-        arr.push(node);
-      }
-    }
-  }
-  flatMessage(node, arr);
-
-  for (const def of Object.keys(definitions)) {
-    // 匹配对应的注释
-    const t1 = arr.find((n) => !!def.match(new RegExp(`${n.name}$`)));
-    if (t1) {
-      if (t1.comment) {
-        definitions[def].description = t1.comment;
-      }
-      if (t1.fields && definitions[def].properties) {
-        for (const prop of Object.keys(definitions[def].properties)) {
-          for (const field of Object.keys(t1.fields)) {
-            if (prop == field && t1.fields[field].comment) {
-              definitions[def].properties[prop].description =
-                t1.fields[field].comment;
-            }
-          }
-        }
-      }
-    }
-  }
-  */
 }
 
-function addVersion(swaggerJson, version) {
-  if (version) {
-    const paths = swaggerJson.paths;
-    const uri = paths[Object.keys(paths)[0]];
-    const method = uri[Object.keys(uri)[0]];
-    method.tags.push(...version);
+function addApiInfo(swaggerJson, paths) {
+  const verionSet = new Set();
+  for (const pk of Object.keys(swaggerJson.paths)) {
+    const path = swaggerJson.paths[pk];
+    const t = paths.find((p) => p.req.uri == pk);
+    if (t.req.brief) {
+      path.post.summary = t.req.brief;
+    }
+    if (t.req.versions) {
+      path.post.tags.push(...t.req.versions);
+      for (const v of t.req.versions) {
+        verionSet.add(v);
+      }
+    }
   }
+  return verionSet.size == 0 ? null : verionSet;
 }
 
 async function getCatList() {
