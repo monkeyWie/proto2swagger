@@ -141,13 +141,13 @@ function genTemp(proto) {
     return;
   }
   const name = path.basename(proto, ".proto");
-  const paths = getMessages(ast, ast2, name, text);
+  let pkg = fullPkg.lastIndexOf(".");
+  pkg = pkg != -1 ? fullPkg.substring(pkg + 1) : fullPkg;
+
+  const paths = getMessages(ast, ast2, name, pkg, text);
   if (paths.length == 0) {
     return;
   }
-
-  let pkg = fullPkg.lastIndexOf(".");
-  pkg = pkg != -1 ? fullPkg.substring(pkg + 1) : fullPkg;
 
   const apisText = paths
     .map((api) => {
@@ -226,7 +226,7 @@ function findMessage(node, exp) {
 }
 
 // 获取出顶级的message配对列表
-function getMessages(ast, ast2, name, text) {
+function getMessages(ast, ast2, name, pkg, text) {
   const ret = [];
 
   const reqs = [];
@@ -317,21 +317,25 @@ function getMessages(ast, ast2, name, text) {
       const type = ast2.root.lookupTypeOrEnum(req.name);
       let uri, brief, versions;
       if (isSingle) {
-        uri = guri;
+        if (guri) {
+          uri = guri[0];
+        } else {
+          uri = "/" + name;
+        }
         brief = gbrief;
         versions = gversions;
       } else if (type && type.comment) {
         uri = type.comment.match(/@?router\s+([^\s]+)\n/);
         if (uri) {
-          uri = [uri[1]];
+          uri = uri[1];
         }
         brief = type.comment.match(/@brief\s+([^\s]+)\n/);
         versions = type.comment.match(/@version\s+([^\s]+)\n/);
       }
       if (uri) {
-        req.uri = uri[0];
+        req.uri = uri;
       } else {
-        req.uri = "/" + req.name;
+        req.uri = "/" + pkg + "_" + req.name;
       }
       if (brief) {
         req.brief = brief[1];
