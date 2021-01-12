@@ -321,14 +321,17 @@ function getMessages(ast, ast2, name, text) {
         brief = gbrief;
         versions = gversions;
       } else if (type && type.comment) {
-        uri = type.comment.match(/(\/[a-zA-Z_\-]+)(\/[a-zA-Z0-9_\-]+)+/);
+        uri = type.comment.match(/@?router\s+([^\s]+)\n/);
+        if (uri) {
+          uri = [uri[1]];
+        }
         brief = type.comment.match(/@brief\s+([^\s]+)\n/);
         versions = type.comment.match(/@version\s+([^\s]+)\n/);
       }
       if (uri) {
         req.uri = uri[0];
       } else {
-        req.uri = "/" + name;
+        req.uri = "/" + req.name;
       }
       if (brief) {
         req.brief = brief[1];
