@@ -275,7 +275,7 @@ function getMessages(ast, ast2, name, pkg, text) {
         resps.push({ name: "ResponseFake" + i });
       }
     }
-    for (let i = 0; i < reqs; i++) {
+    for (let i = 0; i < reqs.length; i++) {
       ret.push({
         req: reqs[i],
         resp: resps[i],
