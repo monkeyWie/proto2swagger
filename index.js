@@ -53,7 +53,9 @@ async function scanProto(dir, cb) {
 
 copyProto();
 scanProto(tempDir, generatedOpenAPI);
-// generatedOpenAPI(path.resolve(tempDir, "ask/ask.proto"));
+/* generatedOpenAPI(
+  path.resolve(tempDir, "inter/inter_172_bind_relationship.proto")
+); */
 
 async function generatedOpenAPI(proto) {
   const name = path.basename(proto);
@@ -241,13 +243,13 @@ function getMessages(ast, ast2, name, pkg, text) {
   for (const key of Object.keys(node)) {
     const t = node[key];
     if (t.syntaxType === "MessageDefinition") {
-      let mr = t.name.match(new RegExp(/^(.*)Req|Request(.*)$/, "i"));
+      let mr = t.name.match(new RegExp(/^(.*)(?:Request|Req)(.*)$/, "i"));
       if (mr) {
         t.biz = mr[1] + mr[2];
         reqs.push(t);
       } else {
         mr = t.name.match(
-          new RegExp(/^(.*)Resp|Res|Rsp|Respond|Response(.*)$/, "i")
+          new RegExp(/^(.*)(?:Respond|Response|Resp|Rsp)(.*)$/, "i")
         );
         if (mr) {
           t.biz = mr[1] + mr[2];
@@ -276,6 +278,9 @@ function getMessages(ast, ast2, name, pkg, text) {
       }
     }
     for (let i = 0; i < reqs.length; i++) {
+      if (!reqs[i].biz) {
+        reqs[i].biz = resps[i].biz;
+      }
       ret.push({
         req: reqs[i],
         resp: resps[i],
@@ -305,6 +310,21 @@ function getMessages(ast, ast2, name, pkg, text) {
     });
   }
 
+  // 接口命名修复逻辑处理，不能重复，不能以数字开头
+  for (const req of reqs) {
+    let modify = false;
+    if (reqs.some((r) => r != req && r.biz == req.biz)) {
+      req.biz = req.name;
+      modify = true;
+    }
+    if (req.biz.match(/^\d/)) {
+      modify = true;
+    }
+    if (modify) {
+      req.biz = "Api" + req.biz;
+    }
+  }
+
   // 全局
   const guri = text.match(/(\/[a-zA-Z_\-]+)(\/[a-zA-Z0-9_\-]+)+/);
   const gbrief = text.match(/@brief\s+([^\s]+)\n/);
@@ -313,18 +333,20 @@ function getMessages(ast, ast2, name, pkg, text) {
 
   // 获取接口基本信息
   for (const req of reqs) {
+    let uri, brief, versions;
+    if (isSingle) {
+      if (guri) {
+        uri = guri[0];
+      } else {
+        uri = "/" + name;
+      }
+      brief = gbrief;
+      versions = gversions;
+    }
+
     if (req.syntaxType) {
       const type = ast2.root.lookupTypeOrEnum(req.name);
-      let uri, brief, versions;
-      if (isSingle) {
-        if (guri) {
-          uri = guri[0];
-        } else {
-          uri = "/" + name;
-        }
-        brief = gbrief;
-        versions = gversions;
-      } else if (type && type.comment) {
+      if (type && type.comment) {
         uri = type.comment.match(/@?router\s+([^\s]+)\n/);
         if (uri) {
           uri = uri[1];
@@ -332,17 +354,18 @@ function getMessages(ast, ast2, name, pkg, text) {
         brief = type.comment.match(/@brief\s+([^\s]+)\n/);
         versions = type.comment.match(/@version\s+([^\s]+)\n/);
       }
-      if (uri) {
-        req.uri = uri;
-      } else {
-        req.uri = "/" + pkg + "_" + req.name;
-      }
-      if (brief) {
-        req.brief = brief[1];
-      }
-      if (versions) {
-        req.versions = versions[1].split(",");
-      }
+    }
+
+    if (uri) {
+      req.uri = uri;
+    } else {
+      req.uri = "/" + pkg + "_" + req.name;
+    }
+    if (brief) {
+      req.brief = brief[1];
+    }
+    if (versions) {
+      req.versions = versions[1].split(",");
     }
   }
 
