@@ -54,7 +54,7 @@ async function scanProto(dir, cb) {
 copyProto();
 scanProto(tempDir, generatedOpenAPI);
 /* generatedOpenAPI(
-  path.resolve(tempDir, "inter/inter_172_bind_relationship.proto")
+  path.resolve(tempDir, "skilladmin/skilladmin_imembers_query.proto")
 ); */
 
 async function generatedOpenAPI(proto) {
@@ -347,12 +347,18 @@ function getMessages(ast, ast2, name, pkg, text) {
     if (req.syntaxType) {
       const type = ast2.root.lookupTypeOrEnum(req.name);
       if (type && type.comment) {
-        uri = type.comment.match(/@?router\s+([^\s]+)\n/);
-        if (uri) {
-          uri = uri[1];
+        const speUri = type.comment.match(/@?router\s+([^\s]+)\n/);
+        if (speUri) {
+          uri = speUri[1];
         }
-        brief = type.comment.match(/@brief\s+([^\s]+)\n/);
-        versions = type.comment.match(/@version\s+([^\s]+)\n/);
+        const speBrief = type.comment.match(/@brief\s+([^\s]+)\n/);
+        if (speBrief) {
+          brief = speBrief;
+        }
+        const speVersions = type.comment.match(/@version\s+([^\s]+)\n/);
+        if (speVersions) {
+          versions = speVersions;
+        }
       }
     }
 
