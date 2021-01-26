@@ -96,6 +96,8 @@ async function generatedOpenAPI(proto) {
   const versions = addApiInfo(swaggerJson, paths);
   // 添加注释
   addComment(swaggerJson, ast, ast2, pkg);
+  // number类型处理
+  undateNumberProperties(swaggerJson);
   fs.writeFileSync(swaggerPath, JSON.stringify(swaggerJson));
 
   // 模拟yAPI导入
@@ -422,6 +424,31 @@ function addComment(swaggerJson, ast, ast2, pkg) {
       }
     }
   });
+}
+
+function undateNumberProperties(swaggerJson) {
+  const definitions = swaggerJson.definitions;
+
+  function checkAndModifyType(prop) {
+    if (prop.format && prop.format.includes("int")) {
+      prop.type = "integer";
+    }
+  }
+
+  for (const defKey of Object.keys(definitions)) {
+    const def = definitions[defKey];
+    if (!def.properties) {
+      continue;
+    }
+    for (const propKey of Object.keys(def.properties)) {
+      const prop = def.properties[propKey];
+      if (prop.type == "array") {
+        checkAndModifyType(prop.items);
+      } else {
+        checkAndModifyType(prop);
+      }
+    }
+  }
 }
 
 function addApiInfo(swaggerJson, paths) {
