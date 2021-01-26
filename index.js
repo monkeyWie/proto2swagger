@@ -52,10 +52,8 @@ async function scanProto(dir, cb) {
 }
 
 copyProto();
-scanProto(tempDir, generatedOpenAPI);
-/* generatedOpenAPI(
-  path.resolve(tempDir, "skilladmin/skilladmin_imembers_query.proto")
-); */
+// scanProto(tempDir, generatedOpenAPI);
+generatedOpenAPI(path.resolve(tempDir, "pay/pay_133_get_asset.proto"));
 
 async function generatedOpenAPI(proto) {
   const name = path.basename(proto);
@@ -381,32 +379,34 @@ function getMessages(ast, ast2, name, pkg, text) {
 }
 
 // 遍历所有message
-function eachMessage(parents, node, handle) {
+function eachMessage(node, handle) {
   if (!node) {
     return null;
   }
   if (node.syntaxType === "MessageDefinition") {
-    parents = parents || [];
-    handle(parents, node);
-    parents.push(node);
+    handle(node);
   }
   if (!node.nested) {
     return;
   }
   for (const key of Object.keys(node.nested)) {
-    eachMessage(parents, node.nested[key], handle);
+    eachMessage(node.nested[key], handle);
   }
 }
 
 function addComment(swaggerJson, ast, ast2, pkg) {
   const definitions = swaggerJson.definitions;
 
-  eachMessage(null, ast.root, (parents, node) => {
+  eachMessage(ast.root, (node) => {
     const m = ast2.root.lookupTypeOrEnum(node.name);
     if (m) {
-      const prefix =
-        (parents.length ? "" : pkg) + parents.map((n) => n.name).join("");
-      const definition = definitions[prefix + m.name];
+      let defName = node.fullName.match(
+        new RegExp(`^\\.${ast.package}\\.(.*)$`)
+      );
+      if (defName) {
+        defName = defName[1].replace(/\./g, "");
+      }
+      const definition = definitions[defName] || definitions[pkg + defName];
       if (definition) {
         if (m.comment) {
           definition.description = m.comment;
@@ -418,7 +418,12 @@ function addComment(swaggerJson, ast, ast2, pkg) {
             protobuf.Field
           );
           if (f && f.comment && definition.properties[field]) {
-            definition.properties[field].description = f.comment;
+            const prop = definition.properties[field];
+            if (prop["$ref"]) {
+              prop["allOf"] = [{ $ref: prop["$ref"] }];
+              delete prop["$ref"];
+            }
+            prop.description = f.comment;
           }
         }
       }
