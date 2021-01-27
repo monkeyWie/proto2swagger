@@ -52,8 +52,8 @@ async function scanProto(dir, cb) {
 }
 
 copyProto();
-// scanProto(tempDir, generatedOpenAPI);
-generatedOpenAPI(path.resolve(tempDir, "pay/pay_133_get_asset.proto"));
+scanProto(tempDir, generatedOpenAPI);
+// generatedOpenAPI(path.resolve(tempDir, "pay/pay_133_get_asset.proto"));
 
 async function generatedOpenAPI(proto) {
   const name = path.basename(proto);
